@@ -46,7 +46,7 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
 }
 
 int main() {
-  int N, i, threads;
+  int N, threads;
   struct timeval tic, toc;
   double OPS, G, eps, time;  
   double *x, *y, *z, *m, *ax, *ay, *az;
@@ -68,10 +68,10 @@ int main() {
   assert( fread(y,sizeof(double),N,file) == N );
   assert( fread(z,sizeof(double),N,file) == N );
   assert( fread(m,sizeof(double),N,file) == N );
-  gettimeofday(&tic,NULL);
   threads = 500;
   G = 6.6743e-11;
   eps = 1e-4;
+  gettimeofday(&tic,NULL);
   GPUkernel<<<N/threads,threads,threads*4*sizeof(double)>>>(N, x, y, z, m, ax, ay, az, G, eps);
   cudaThreadSynchronize();
   gettimeofday(&toc,NULL);

@@ -32,9 +32,9 @@ int main(int argc, char *argv[])
   assert( fread(m,sizeof(double),N,file) == N );
   fclose(file);
   
-  gettimeofday(&tic,NULL);
   G = 6.6743e-11;
   eps = 1e-4;
+  gettimeofday(&tic,NULL);
 #pragma omp parallel for private(axi,ayi,azi,Gmi,j,dx,dy,dz,R2,invR,invR3)
   for (i=0; i<N; i++) {
     axi = 0;
