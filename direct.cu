@@ -3,8 +3,6 @@
 #include <stdio.h>
 #include <sys/time.h>
 
-#define THREADS 512
-
 double get_time() {
   struct timeval tv;
   gettimeofday(&tv,NULL);
@@ -15,7 +13,7 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
 			  double * ax, double * ay, double * az, double G, double eps) {
   int i, j, jb;
   double axi, ayi, azi, xi, yi, zi, Gmi, dx, dy, dz, R2, invR, invR3;
-  i = blockIdx.x * THREADS + threadIdx.x;
+  i = blockIdx.x * blockDim.x + threadIdx.x;
   axi = 0;
   ayi = 0;
   azi = 0;
@@ -23,16 +21,19 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
   yi = y[i];
   zi = z[i];
   Gmi = G * m[i];
-  __shared__ double xj[THREADS], yj[THREADS], zj[THREADS], mj[THREADS];
-  for ( jb=0; jb<N/THREADS; jb++ ) {
+  extern __shared__ double xj[];
+  double *yj = &xj[blockDim.x];
+  double *zj = &yj[blockDim.x];
+  double *mj = &zj[blockDim.x];
+  for ( jb=0; jb<N/blockDim.x; jb++ ) {
     __syncthreads();
-    xj[threadIdx.x] = x[jb*THREADS+threadIdx.x];
-    yj[threadIdx.x] = y[jb*THREADS+threadIdx.x];
-    zj[threadIdx.x] = z[jb*THREADS+threadIdx.x];
-    mj[threadIdx.x] = m[jb*THREADS+threadIdx.x];
+    xj[threadIdx.x] = x[jb*blockDim.x+threadIdx.x];
+    yj[threadIdx.x] = y[jb*blockDim.x+threadIdx.x];
+    zj[threadIdx.x] = z[jb*blockDim.x+threadIdx.x];
+    mj[threadIdx.x] = m[jb*blockDim.x+threadIdx.x];
     __syncthreads();
 #pragma unroll
-    for( j=0; j<THREADS; j++ ) {
+    for( j=0; j<blockDim.x; j++ ) {
       dx = xi - xj[j];
       dy = yi - yj[j];
       dz = zi - zj[j];
@@ -51,11 +52,12 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
 
 int main() {
 // Initialize
-  int N = 1 << 16;
-  int i, j;
+  int N, i, j, threads;
   double OPS, G, eps, Gmi, tic, toc, diff, norm;  
   double axi, ayi, azi, dx, dy, dz, R2, invR, invR3;
   double *x, *y, *z, *m, *ax, *ay, *az;
+  N = 1 << 16;
+  threads = 512;
   OPS = 20. * N * N * 1e-9;
   G = 6.6743e-11;
   eps = 1e-4;
@@ -76,7 +78,7 @@ int main() {
 
 // CUDA
   tic = get_time();
-  GPUkernel<<<N/THREADS,THREADS>>>(N, x, y, z, m, ax, ay, az, G, eps);
+  GPUkernel<<<N/threads,threads,threads*4*sizeof(double)>>>(N, x, y, z, m, ax, ay, az, G, eps);
   cudaThreadSynchronize();
   toc = get_time();
   printf("CUDA   : %e s : %lf GFlops\n",toc-tic, OPS/(toc-tic));
