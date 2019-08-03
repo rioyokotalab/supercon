@@ -20,6 +20,7 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
   double xi = x[i];
   double yi = y[i];
   double zi = z[i];
+  double Gmi = G * m[i];
   __shared__ double xj[THREADS], yj[THREADS], zj[THREADS], mj[THREADS];
   for ( int jb=0; jb<N/THREADS; jb++ ) {
     __syncthreads();
@@ -35,7 +36,7 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
       double dz = zi - zj[j];
       double R2 = dx * dx + dy * dy + dz * dz + eps;
       double invR = rsqrtf(R2);
-      double invR3 = invR * invR * invR * mj[j];
+      double invR3 = invR * invR * invR * Gmi * mj[j];
       axi -= dx * invR3;
       ayi -= dy * invR3;
       azi -= dz * invR3;
@@ -50,17 +51,18 @@ int main() {
 // Initialize
   int N = 1 << 16;
   int i, j;
-  double OPS = 19. * N * N * 1e-9;
+  double OPS = 20. * N * N * 1e-9;
   double G = 6.6743e-11;
   double EPS = 1e-4;
   double tic, toc;
-  double * x = (double*) malloc(N * sizeof(double));
-  double * y = (double*) malloc(N * sizeof(double));
-  double * z = (double*) malloc(N * sizeof(double));
-  double * m = (double*) malloc(N * sizeof(double));
-  double * ax = (double*) malloc(N * sizeof(double));
-  double * ay = (double*) malloc(N * sizeof(double));
-  double * az = (double*) malloc(N * sizeof(double));
+  double *x, *y, *z, *m, *ax, *ay, *az;
+  cudaMallocManaged((void**)&x, N * sizeof(double));
+  cudaMallocManaged((void**)&y, N * sizeof(double));
+  cudaMallocManaged((void**)&z, N * sizeof(double));
+  cudaMallocManaged((void**)&m, N * sizeof(double));
+  cudaMallocManaged((void**)&ax, N * sizeof(double));
+  cudaMallocManaged((void**)&ay, N * sizeof(double));
+  cudaMallocManaged((void**)&az, N * sizeof(double));
   for (i=0; i<N; i++) {
     x[i] = drand48();
     y[i] = drand48();
@@ -71,41 +73,10 @@ int main() {
 
 // CUDA
   tic = get_time();
-  double *x_d, *y_d, *z_d, *m_d, *ax_d, *ay_d, *az_d;
-  cudaMalloc((void**)&x_d, N * sizeof(double));
-  cudaMalloc((void**)&y_d, N * sizeof(double));
-  cudaMalloc((void**)&z_d, N * sizeof(double));
-  cudaMalloc((void**)&m_d, N * sizeof(double));
-  cudaMalloc((void**)&ax_d, N * sizeof(double));
-  cudaMalloc((void**)&ay_d, N * sizeof(double));
-  cudaMalloc((void**)&az_d, N * sizeof(double));
-  toc = get_time();
-  //printf("malloc : %e s\n",toc-tic);
-  tic = get_time();
-  cudaMemcpy(x_d, x, N * sizeof(double), cudaMemcpyHostToDevice);
-  cudaMemcpy(y_d, y, N * sizeof(double), cudaMemcpyHostToDevice);
-  cudaMemcpy(z_d, z, N * sizeof(double), cudaMemcpyHostToDevice);
-  cudaMemcpy(m_d, m, N * sizeof(double), cudaMemcpyHostToDevice);
-  toc = get_time();
-  //printf("memcpy : %e s\n",toc-tic);
-  tic = get_time();
-  GPUkernel<<<N/THREADS,THREADS>>>(N, x_d, y_d, z_d, m_d, ax_d, ay_d, az_d, G, EPS);
+  GPUkernel<<<N/THREADS,THREADS>>>(N, x, y, z, m, ax, ay, az, G, EPS);
   cudaThreadSynchronize();
   toc = get_time();
   printf("CUDA   : %e s : %lf GFlops\n",toc-tic, OPS/(toc-tic));
-  tic = get_time();
-  cudaMemcpy(ax, ax_d, N * sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(ay, ay_d, N * sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(az, az_d, N * sizeof(double), cudaMemcpyDeviceToHost);
-  toc = get_time();
-  //printf("memcpy : %e s\n",toc-tic);
-  cudaFree(x_d);
-  cudaFree(y_d);
-  cudaFree(z_d);
-  cudaFree(m_d);
-  cudaFree(ax_d);
-  cudaFree(ay_d);
-  cudaFree(az_d);
 
 // No CUDA
   double diff = 0, norm = 0;
@@ -115,13 +86,14 @@ int main() {
     double axi = 0;
     double ayi = 0;
     double azi = 0;
+    double Gmi = G * m[i];
     for (j=0; j<N; j++) {
       double dx = x[i] - x[j];
       double dy = y[i] - y[j];
       double dz = z[i] - z[j];
       double R2 = dx * dx + dy * dy + dz * dz + EPS;
       double invR = 1.0f / sqrtf(R2);
-      double invR3 = invR * invR * invR * m[j];
+      double invR3 = invR * invR * invR * Gmi * m[j];
       axi -= dx * invR3;
       ayi -= dy * invR3;
       azi -= dz * invR3;
@@ -136,12 +108,12 @@ int main() {
   printf("Error  : %e\n",sqrt(diff/norm));
 
 // DEALLOCATE
-  free(x);
-  free(y);
-  free(z);
-  free(m);
-  free(ax);
-  free(ay);
-  free(az);
+  cudaFree(x);
+  cudaFree(y);
+  cudaFree(z);
+  cudaFree(m);
+  cudaFree(ax);
+  cudaFree(ay);
+  cudaFree(az);
   return 0;
 }
