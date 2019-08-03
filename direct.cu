@@ -2,12 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/time.h>
-
-double get_time() {
-  struct timeval tv;
-  gettimeofday(&tv,NULL);
-  return (double)(tv.tv_sec+tv.tv_usec*1e-6);
-}
+#include <assert.h>
 
 __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
 			  double * ax, double * ay, double * az, double G, double eps) {
@@ -51,16 +46,17 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
 }
 
 int main() {
-// Initialize
-  int N, i, j, threads;
-  double OPS, G, eps, Gmi, tic, toc, diff, norm;  
-  double axi, ayi, azi, dx, dy, dz, R2, invR, invR3;
+  int N, i, threads;
+  struct timeval tic, toc;
+  double OPS, G, eps, time;  
   double *x, *y, *z, *m, *ax, *ay, *az;
-  N = 1 << 16;
-  threads = 512;
+  FILE *file;
+  if ( (file = fopen("initial.dat","rb")) == NULL ) {
+    fprintf(stderr, "File open error.\n");
+    exit(EXIT_FAILURE);
+  }
+  assert( fread(&N,sizeof(int),1,file) == 1 );
   OPS = 20. * N * N * 1e-9;
-  G = 6.6743e-11;
-  eps = 1e-4;
   cudaMallocManaged((void**)&x, N * sizeof(double));
   cudaMallocManaged((void**)&y, N * sizeof(double));
   cudaMallocManaged((void**)&z, N * sizeof(double));
@@ -68,52 +64,25 @@ int main() {
   cudaMallocManaged((void**)&ax, N * sizeof(double));
   cudaMallocManaged((void**)&ay, N * sizeof(double));
   cudaMallocManaged((void**)&az, N * sizeof(double));
-  for (i=0; i<N; i++) {
-    x[i] = drand48();
-    y[i] = drand48();
-    z[i] = drand48();
-    m[i] = drand48() / N;
-  }
-  printf("N      : %d\n",N);
-
-// CUDA
-  tic = get_time();
+  assert( fread(x,sizeof(double),N,file) == N );
+  assert( fread(y,sizeof(double),N,file) == N );
+  assert( fread(z,sizeof(double),N,file) == N );
+  assert( fread(m,sizeof(double),N,file) == N );
+  gettimeofday(&tic,NULL);
+  threads = 500;
+  G = 6.6743e-11;
+  eps = 1e-4;
   GPUkernel<<<N/threads,threads,threads*4*sizeof(double)>>>(N, x, y, z, m, ax, ay, az, G, eps);
   cudaThreadSynchronize();
-  toc = get_time();
-  printf("CUDA   : %e s : %lf GFlops\n",toc-tic, OPS/(toc-tic));
-
-// No CUDA
-  diff = 0;
-  norm = 0;
-  tic = get_time();
-#pragma omp parallel for private(axi,ayi,azi,Gmi,j,dx,dy,dz,R2,invR,invR3) reduction(+: diff, norm)
-  for (i=0; i<N; i++) {
-    axi = 0;
-    ayi = 0;
-    azi = 0;
-    Gmi = G * m[i];
-    for (j=0; j<N; j++) {
-      dx = x[i] - x[j];
-      dy = y[i] - y[j];
-      dz = z[i] - z[j];
-      R2 = dx * dx + dy * dy + dz * dz + eps;
-      invR = 1.0f / sqrtf(R2);
-      invR3 = invR * invR * invR * Gmi * m[j];
-      axi -= dx * invR3;
-      ayi -= dy * invR3;
-      azi -= dz * invR3;
-    }
-    diff += (ax[i] - axi) * (ax[i] - axi)
-      + (ay[i] - ayi) * (ay[i] - ayi)
-      + (az[i] - azi) * (az[i] - azi);
-    norm += axi * axi + ayi * ayi + azi * azi;    
-  }
-  toc = get_time();
-  printf("No CUDA: %e s : %lf GFlops\n",toc-tic, OPS/(toc-tic));
-  printf("Error  : %e\n",sqrt(diff/norm));
-
-// DEALLOCATE
+  gettimeofday(&toc,NULL);
+  time = toc.tv_sec-tic.tv_sec+(toc.tv_usec-tic.tv_usec)*1e-6;
+  printf("GPU    : %e s : %lf GFlops\n",time, OPS/time);
+  file = fopen("approx.dat","wb");
+  fwrite(&N,sizeof(int),1,file);
+  fwrite(ax,sizeof(double),N,file);
+  fwrite(ay,sizeof(double),N,file);
+  fwrite(az,sizeof(double),N,file);
+  fclose(file);
   cudaFree(x);
   cudaFree(y);
   cudaFree(z);
