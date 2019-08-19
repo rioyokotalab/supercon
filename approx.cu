@@ -331,7 +331,10 @@ int main(int argc, char **argv) {
 
   struct timeval tic, toc;
   gettimeofday(&tic, NULL);
-  struct Body *bodies = (struct Body*)malloc(N*sizeof(struct Body));
+  struct Body *bodies, *bodies2;
+  cudaMallocManaged((void**)&bodies, N * sizeof(struct Body));
+  cudaMallocManaged((void**)&bodies2, N * sizeof(struct Body));
+  
 #if 1
   initBodies(bodies, N);
 #else
@@ -364,21 +367,29 @@ int main(int argc, char **argv) {
   double R0;
   double X0[3];
   getBounds(bodies, N, X0, &R0);
-  struct Body *bodies2 = (struct Body*)malloc(N*sizeof(struct Body));
-  struct Node *nodes = (struct Node*)malloc(N*(32/ncrit+1)*sizeof(struct Node));
+  struct Node *nodes;
+  cudaMallocManaged((void**)&nodes, N*(32/ncrit+1) * sizeof(struct Node));
+  gettimeofday(&toc, NULL);
+  printf("Malloc : %g\n",timeDiff(tic,toc));
   int numNodes = 1;
   buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
-  gettimeofday(&toc, NULL);
-  printf("Tree   : %g\n",timeDiff(tic,toc));
-  upwardPass(nodes);
   gettimeofday(&tic, NULL);
-  printf("Upward : %g\n",timeDiff(toc,tic));
+  printf("Tree   : %g\n",timeDiff(toc,tic));
+  upwardPass(nodes);
+  gettimeofday(&toc, NULL);
+  printf("Upward : %g\n",timeDiff(tic,toc));
+  int numLeafs = 0;
+  for (int i=0; i<numNodes; i++) {
+    if(nodes[i].numChilds == 0) numLeafs++;
+  }
+  struct Node *leafs;
+  cudaMallocManaged((void**)&leafs, numLeafs * sizeof(struct Node));
 #pragma omp parallel for schedule(dynamic)
   for (int i=0; i<numNodes; i++) {
     if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);
   }
-  gettimeofday(&toc, NULL);
-  printf("Downwd : %g\n",timeDiff(tic,toc));
+  gettimeofday(&tic, NULL);
+  printf("Downwd : %g\n",timeDiff(toc,tic));
 
 #if 0
   double G = 6.6743e-11;
@@ -430,8 +441,9 @@ int main(int argc, char **argv) {
   }
   printf("Error  : %e\n", sqrtf(diff/norm));
 #endif
-  free(nodes);
-  free(bodies);
-  free(bodies2);
+  cudaFree(nodes);
+  cudaFree(leafs);
+  cudaFree(bodies);
+  cudaFree(bodies2);
   return 0;
 }
