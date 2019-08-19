@@ -1,4 +1,3 @@
-#define _XOPEN_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -313,18 +312,6 @@ void horizontalPass(struct Node * Ci, struct Node * Cj, double theta) {
   }
 }
 
-//! Recursive call to pre-order tree traversal for downward pass
-void downwardPass(struct Node *Ci, struct Node * Cj, double theta) {
-  if (Ci->numChilds==0) {
-    horizontalPass(Ci, Cj, theta);
-  }
-  for (struct Node *C=Ci->child; C!=Ci->child+Ci->numChilds; C++) {
-#pragma omp task untied if(C->numBodies > 100)
-    downwardPass(C, Cj, theta);
-  }
-#pragma omp taskwait
-}
-
 //! Direct summation
 void direct(struct Body * ibodies, int numTargets, struct Body * jbodies, int numBodies) {
   struct Node nodes[2];
@@ -341,7 +328,6 @@ int main(int argc, char ** argv) {
   int N = 10000;
   double theta = .4;
   double ncrit = 100;
-  double G = 6.6743e-11;
 
   struct timeval tic, toc;
   gettimeofday(&tic, NULL);
@@ -382,14 +368,20 @@ int main(int argc, char ** argv) {
   struct Node * nodes = (struct Node*)malloc(N*(32/ncrit+1)*sizeof(struct Node));
   int numNodes = 1;
   buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
-  upwardPass(nodes);
-#pragma omp parallel
-#pragma omp single nowait
-  downwardPass(&nodes[0],&nodes[0],theta);
   gettimeofday(&toc, NULL);
-  printf("FMM    : %g\n",timeDiff(tic,toc));
+  printf("Tree   : %g\n",timeDiff(tic,toc));
+  upwardPass(nodes);
+  gettimeofday(&tic, NULL);
+  printf("Upward : %g\n",timeDiff(toc,tic));
+#pragma omp parallel for schedule(dynamic)
+  for (int i=0; i<numNodes; i++) {
+    if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);
+  }
+  gettimeofday(&toc, NULL);
+  printf("Downwd : %g\n",timeDiff(tic,toc));
 
 #if 0
+  double G = 6.6743e-11;
   for (int b=0; b<N; b++) {
     int i = bodies[b].i;
     ax[i] = bodies[b].F[0] * G * bodies[b].m;

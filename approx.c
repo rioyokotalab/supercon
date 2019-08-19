@@ -313,18 +313,6 @@ void horizontalPass(struct Node * Ci, struct Node * Cj, double theta) {
   }
 }
 
-//! Recursive call to pre-order tree traversal for downward pass
-void downwardPass(struct Node *Ci, struct Node * Cj, double theta) {
-  if (Ci->numChilds==0) {
-    horizontalPass(Ci, Cj, theta);
-  }
-  for (struct Node *C=Ci->child; C!=Ci->child+Ci->numChilds; C++) {
-#pragma omp task untied if(C->numBodies > 100)
-    downwardPass(C, Cj, theta);
-  }
-#pragma omp taskwait
-}
-
 //! Direct summation
 void direct(struct Body * ibodies, int numTargets, struct Body * jbodies, int numBodies) {
   struct Node nodes[2];
@@ -380,9 +368,10 @@ int main(int argc, char ** argv) {
   int numNodes = 1;
   buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
   upwardPass(nodes);
-#pragma omp parallel
-#pragma omp single nowait
-  downwardPass(&nodes[0],&nodes[0],theta);
+#pragma omp parallel for schedule(dynamic)
+  for (int i=0; i<numNodes; i++) {
+    if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);
+  }
   gettimeofday(&toc, NULL);
   printf("FMM    : %g\n",timeDiff(tic,toc));
 
