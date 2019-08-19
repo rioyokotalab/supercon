@@ -70,7 +70,7 @@ int main() {
   assert( fread(m,sizeof(double),N,file) == N );
   threads = 500;
   G = 6.6743e-11;
-  eps = 1e-4;
+  eps = 1e-8;
   gettimeofday(&tic,NULL);
   GPUkernel<<<N/threads,threads,threads*4*sizeof(double)>>>(N, x, y, z, m, ax, ay, az, G, eps);
   cudaThreadSynchronize();

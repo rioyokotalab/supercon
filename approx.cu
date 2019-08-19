@@ -156,7 +156,7 @@ int indexP(int nx, int ny, int nz, int p) {
 }
   
 void P2P(struct Node * Ci, struct Node * Cj) {
-  double eps = 1e-4;
+  double eps = 1e-8;
   struct Body * Bi = Ci->body;
   struct Body * Bj = Cj->body;
   for (int i=0; i<Ci->numBodies; i++) {
@@ -340,7 +340,7 @@ void direct(struct Body * ibodies, int numTargets, struct Body * jbodies, int nu
 int main(int argc, char ** argv) {
   int N = 10000;
   double theta = .4;
-  double ncrit = 128;
+  double ncrit = 100;
   double G = 6.6743e-11;
 
   struct timeval tic, toc;
@@ -441,5 +441,5 @@ int main(int argc, char ** argv) {
   free(nodes);
   free(bodies);
   free(bodies2);
-    return 0;
+  return 0;
 }

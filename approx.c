@@ -156,7 +156,7 @@ int indexP(int nx, int ny, int nz, int p) {
 }
   
 void P2P(struct Node * Ci, struct Node * Cj) {
-  double eps = 1e-4;
+  double eps = 1e-8;
   struct Body * Bi = Ci->body;
   struct Body * Bj = Cj->body;
   for (int i=0; i<Ci->numBodies; i++) {
