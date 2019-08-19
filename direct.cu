@@ -77,7 +77,7 @@ int main() {
   gettimeofday(&toc,NULL);
   time = toc.tv_sec-tic.tv_sec+(toc.tv_usec-tic.tv_usec)*1e-6;
   printf("GPU    : %e s : %lf GFlops\n",time, OPS/time);
-  file = fopen("approx.dat","wb");
+  file = fopen("direct.dat","wb");
   fwrite(&N,sizeof(int),1,file);
   fwrite(ax,sizeof(double),N,file);
   fwrite(ay,sizeof(double),N,file);

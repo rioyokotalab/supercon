@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <sys/time.h>
+#include <assert.h>
 
 #define P 10
 #define MTERM P*(P+1)*(P+2)/6
@@ -10,6 +11,7 @@
 
 //! Structure of bodies
 struct Body {
+  int i;
   double X[3];
   double m;
   double F[3];
@@ -112,6 +114,7 @@ void buildTree(struct Body * bodies, struct Body * buffer, int begin, int end,
       for (int i=begin; i<end; i++) {
         for (int d=0; d<3; d++) buffer[i].X[d] = bodies[i].X[d];
         buffer[i].m = bodies[i].m;
+        buffer[i].i = bodies[i].i;
       }
     }
     return;
@@ -123,6 +126,7 @@ void buildTree(struct Body * bodies, struct Body * buffer, int begin, int end,
     int octant = (x[0] > X[0]) + ((x[1] > X[1]) << 1) + ((x[2] > X[2]) << 2);
     for (int d=0; d<3; d++) buffer[counter[octant]].X[d] = bodies[i].X[d];
     buffer[counter[octant]].m = bodies[i].m;
+    buffer[counter[octant]].i = bodies[i].i;
     counter[octant]++;
   }
   //! Loop over children and recurse
@@ -151,6 +155,7 @@ int indexP(int nx, int ny, int nz, int p) {
 }
   
 void P2P(struct Node * Ci, struct Node * Cj) {
+  double eps = 1e-4;
   struct Body * Bi = Ci->body;
   struct Body * Bj = Cj->body;
   for (int i=0; i<Ci->numBodies; i++) {
@@ -158,12 +163,10 @@ void P2P(struct Node * Ci, struct Node * Cj) {
     for (int j=0; j<Cj->numBodies; j++) {
       double dX[3];
       for (int d=0; d<3; d++) dX[d] = Bi[i].X[d] - Bj[j].X[d];
-      double R2 = dX[0] * dX[0] + dX[1] * dX[1] + dX[2] * dX[2];
-      if (R2 != 0) {
-        double invR2 = 1.0 / R2;
-        double invR = Bj[j].m * sqrt(invR2);
-        for (int d=0; d<3; d++) F[d] += dX[d] * invR2 * invR;
-      }
+      double R2 = dX[0] * dX[0] + dX[1] * dX[1] + dX[2] * dX[2] + eps;
+      double invR2 = 1.0 / R2;
+      double invR = Bj[j].m * sqrt(invR2);
+      for (int d=0; d<3; d++) F[d] += dX[d] * invR2 * invR;
     }
     for (int d=0; d<3; d++) {
 #pragma omp atomic
@@ -334,21 +337,47 @@ void direct(struct Body * ibodies, int numTargets, struct Body * jbodies, int nu
 }
 
 int main(int argc, char ** argv) {
-  int numBodies = 10000;
+  int N = 10000;
   double theta = .4;
   double ncrit = 128;
+  double G = 6.6743e-11;
+  FILE *file;
+  if ( (file = fopen("initial.dat","rb")) == NULL ) {
+    fprintf(stderr, "File open error.\n");
+    exit(EXIT_FAILURE);
+  }
+  assert( fread(&N,sizeof(int),1,file) == 1 );
+  double * x = (double*) malloc(N*sizeof(double));
+  double * y = (double*) malloc(N*sizeof(double));
+  double * z = (double*) malloc(N*sizeof(double));
+  double * m = (double*) malloc(N*sizeof(double));
+  double * ax = (double*) malloc(N*sizeof(double));
+  double * ay = (double*) malloc(N*sizeof(double));
+  double * az = (double*) malloc(N*sizeof(double));
+  assert( fread(x,sizeof(double),N,file) == N );
+  assert( fread(y,sizeof(double),N,file) == N );
+  assert( fread(z,sizeof(double),N,file) == N );
+  assert( fread(m,sizeof(double),N,file) == N );
+  fclose(file);
 
   struct timeval tic, toc;
   gettimeofday(&tic, NULL);
-  struct Body * bodies = (struct Body*)malloc(numBodies*sizeof(struct Body));
-  initBodies(bodies, numBodies);
+  struct Body * bodies = (struct Body*)malloc(N*sizeof(struct Body));
+  //initBodies(bodies, N);
+  for (int b=0; b<N; b++) {
+    bodies[b].X[0] = x[b];
+    bodies[b].X[1] = y[b];
+    bodies[b].X[2] = z[b];
+    bodies[b].m = m[b];
+    bodies[b].i = b;
+  }
   double R0;
   double X0[3];
-  getBounds(bodies, numBodies, X0, &R0);
-  struct Body * bodies2 = (struct Body*)malloc(numBodies*sizeof(struct Body));
-  struct Node * nodes = (struct Node*)malloc(numBodies*(32/ncrit+1)*sizeof(struct Node));
+  getBounds(bodies, N, X0, &R0);
+  struct Body * bodies2 = (struct Body*)malloc(N*sizeof(struct Body));
+  struct Node * nodes = (struct Node*)malloc(N*(32/ncrit+1)*sizeof(struct Node));
   int numNodes = 1;
-  buildTree(bodies, bodies2, 0, numBodies, nodes, nodes, &numNodes, X0, R0, ncrit, false);
+  buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
   upwardPass(nodes);
 #pragma omp parallel
 #pragma omp single nowait
@@ -356,9 +385,22 @@ int main(int argc, char ** argv) {
   gettimeofday(&toc, NULL);
   printf("FMM    : %g\n",timeDiff(tic,toc));
 
+  for (int b=0; b<N; b++) {
+    int i = bodies[b].i;
+    ax[i] = bodies[b].F[0] * G * bodies[b].m;
+    ay[i] = bodies[b].F[1] * G * bodies[b].m;
+    az[i] = bodies[b].F[2] * G * bodies[b].m;
+  }
+  file = fopen("approx.dat","wb");
+  fwrite(&N,sizeof(int),1,file);
+  fwrite(ax,sizeof(double),N,file);
+  fwrite(ay,sizeof(double),N,file);
+  fwrite(az,sizeof(double),N,file);
+  fclose(file);
+  /*
   gettimeofday(&tic, NULL);
   int numTargets = 100;
-  int stride = numBodies / numTargets;
+  int stride = N / numTargets;
   for (int b=0; b<numTargets; b++) {
     bodies2[b].m = bodies[b*stride].m;
     for (int d=0; d<3; d++) {
@@ -366,7 +408,7 @@ int main(int argc, char ** argv) {
       bodies2[b].F[d] = 0;
     }
   }
-  direct(&bodies2[0], numTargets, &bodies[0], numBodies);
+  direct(&bodies2[0], numTargets, &bodies[0], N);
   for (int b=0; b<numTargets; b++)
     for (int d=0; d<3; d++)
       bodies[b].F[d] = bodies[b*stride].F[d];
@@ -383,8 +425,17 @@ int main(int argc, char ** argv) {
     norm += bodies[b].F[2] * bodies[b].F[2];
   }
   printf("Error  : %e\n", sqrtf(diff/norm));
+  */
   free(nodes);
   free(bodies);
   free(bodies2);
+  
+  free(x);
+  free(y);
+  free(z);
+  free(m);
+  free(ax);
+  free(ay);
+  free(az);
   return 0;
 }

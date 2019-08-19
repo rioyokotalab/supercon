@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
 	(ax_approx[i] - ax_direct[i]) * (ax_approx[i] - ax_direct[i]) +
         (ay_approx[i] - ay_direct[i]) * (ay_approx[i] - ay_direct[i]) +
         (az_approx[i] - az_direct[i]) * (az_approx[i] - az_direct[i]);
-    norm += ax_direct[i] * ax_direct[i] + ay_direct[i] * ay_direct[i] + az_direct[i] * az_direct[i];    
+    norm += ax_direct[i] * ax_direct[i] + ay_direct[i] * ay_direct[i] + az_direct[i] * az_direct[i];
   }
   printf("Error  : %e\n",sqrt(diff/norm));
 
