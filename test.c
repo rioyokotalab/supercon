@@ -342,6 +342,13 @@ int main(int argc, char ** argv) {
   double theta = .4;
   double ncrit = 128;
   double G = 6.6743e-11;
+
+  struct timeval tic, toc;
+  gettimeofday(&tic, NULL);
+  struct Body * bodies = (struct Body*)malloc(N*sizeof(struct Body));
+#if 1
+  initBodies(bodies, N);
+#else
   FILE *file;
   if ( (file = fopen("initial.dat","rb")) == NULL ) {
     fprintf(stderr, "File open error.\n");
@@ -360,11 +367,6 @@ int main(int argc, char ** argv) {
   assert( fread(z,sizeof(double),N,file) == N );
   assert( fread(m,sizeof(double),N,file) == N );
   fclose(file);
-
-  struct timeval tic, toc;
-  gettimeofday(&tic, NULL);
-  struct Body * bodies = (struct Body*)malloc(N*sizeof(struct Body));
-  //initBodies(bodies, N);
   for (int b=0; b<N; b++) {
     bodies[b].X[0] = x[b];
     bodies[b].X[1] = y[b];
@@ -372,6 +374,7 @@ int main(int argc, char ** argv) {
     bodies[b].m = m[b];
     bodies[b].i = b;
   }
+#endif
   double R0;
   double X0[3];
   getBounds(bodies, N, X0, &R0);
@@ -386,6 +389,7 @@ int main(int argc, char ** argv) {
   gettimeofday(&toc, NULL);
   printf("FMM    : %g\n",timeDiff(tic,toc));
 
+#if 0
   for (int b=0; b<N; b++) {
     int i = bodies[b].i;
     ax[i] = bodies[b].F[0] * G * bodies[b].m;
@@ -398,7 +402,14 @@ int main(int argc, char ** argv) {
   fwrite(ay,sizeof(double),N,file);
   fwrite(az,sizeof(double),N,file);
   fclose(file);
-  /*
+  free(x);
+  free(y);
+  free(z);
+  free(m);
+  free(ax);
+  free(ay);
+  free(az);
+#else
   gettimeofday(&tic, NULL);
   int numTargets = 100;
   int stride = N / numTargets;
@@ -426,17 +437,9 @@ int main(int argc, char ** argv) {
     norm += bodies[b].F[2] * bodies[b].F[2];
   }
   printf("Error  : %e\n", sqrtf(diff/norm));
-  */
+#endif
   free(nodes);
   free(bodies);
   free(bodies2);
-  
-  free(x);
-  free(y);
-  free(z);
-  free(m);
-  free(ax);
-  free(ay);
-  free(az);
-  return 0;
+    return 0;
 }
