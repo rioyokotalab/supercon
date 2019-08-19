@@ -384,9 +384,20 @@ int main(int argc, char **argv) {
   }
   struct Node *leafs;
   cudaMallocManaged((void**)&leafs, numLeafs * sizeof(struct Node));
+  for (int i=0,l=0; i<numNodes; i++) {
+    if(nodes[i].numChilds == 0) {
+      leafs[l].numChilds = 0;
+      leafs[l].numBodies = nodes[i].numBodies;
+      leafs[l].body = nodes[i].body;
+      leafs[l].R = nodes[i].R;
+      for (int d=0; d<3; d++) leafs[l].X[d] = nodes[i].X[d];
+      for (int n=0; n<MTERM; n++) leafs[l].M[n] = nodes[i].M[n];
+      l++;
+    }
+  }
 #pragma omp parallel for schedule(dynamic)
-  for (int i=0; i<numNodes; i++) {
-    if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);
+  for (int i=0; i<numLeafs; i++) {
+    horizontalPass(&leafs[i],&nodes[0],theta);
   }
   gettimeofday(&tic, NULL);
   printf("Downwd : %g\n",timeDiff(toc,tic));
