@@ -1,206 +1,390 @@
-#include <cmath>
-#include <cstdlib>
-#include <iostream>
-#include <vector>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <stdbool.h>
+#include <sys/time.h>
 
+#define P 10
+#define MTERM P*(P+1)*(P+2)/6
+#define CTERM (P+1)*(P+2)*(P+3)/6
+
+//! Structure of bodies
 struct Body {
   double X[3];
-  double q;
-  double p;
-  int index;
+  double m;
+  double F[3];
 };
-typedef std::vector<Body> Bodies;
 
-struct Cell {
-  int NCHILD;
-  int NBODY;
-  Cell * CHILD;
-  Body * BODY;
+//! Structure of nodes
+struct Node {
+  int numChilds;
+  int numBodies;
   double X[3];
   double R;
-  double M;
-  double L;
-  int index;
+  struct Node * child;
+  struct Body * body;
+  double M[MTERM];
 };
-typedef std::vector<Cell> Cells;
 
-void buildTree(Bodies & bodies, Cells & cells, Cell * cell, double * Xmin, double * X0, double R0, int begin, int end, int ncrit) {
-  cell->BODY = &bodies[0] + begin;
-  cell->NBODY = end - begin;
-  cell->NCHILD = 0;
-  cell->M = cell->L = 0;
-  for (int d=0; d<3; d++) cell->X[d] = X0[d];
-  cell->R = R0;
-  if (end - begin < ncrit) return;
-  // Count bodies in each octant
-  int size[8] = {0};
-  for (int b=begin; b<end; b++) {
-    int octant = (bodies[b].X[0] > X0[0]) + ((bodies[b].X[1] > X0[1]) << 1) + ((bodies[b].X[2] > X0[2]) << 2);
+double timeDiff(struct timeval tic, struct timeval toc) {
+  return toc.tv_sec - tic.tv_sec + (toc.tv_usec - tic.tv_usec) * 1e-6;
+}
+
+void initBodies(struct Body * bodies, int numBodies) {
+  srand48(0);
+  int b = 0;
+  while (b < numBodies) {
+    double X1 = drand48();
+    double X2 = drand48();
+    double X3 = drand48();
+    double R = 1.0 / sqrt( (pow(X1, -2.0 / 3.0) - 1.0) );
+    if (R < 100.0) {
+      double Z = (1.0 - 2.0 * X2) * R;
+      double X = sqrt(R * R - Z * Z) * cos(2.0 * M_PI * X3);
+      double Y = sqrt(R * R - Z * Z) * sin(2.0 * M_PI * X3);
+      double scale = 3.0 * M_PI / 16.0;
+      X *= scale; Y *= scale; Z *= scale;
+      bodies[b].X[0] = X;
+      bodies[b].X[1] = Y;
+      bodies[b].X[2] = Z;
+      bodies[b].m = drand48();
+      bodies[b].F[0] = 0;
+      bodies[b].F[1] = 0;
+      bodies[b].F[2] = 0;
+      b++;
+    }
+  }
+}
+
+//! Get bounding box of bodies
+void getBounds(struct Body * bodies, int numBodies, double * X0, double * R0) {
+  double Xmin[3], Xmax[3];
+  for (int d=0; d<3; d++) {
+    Xmin[d] = bodies[0].X[d];
+    Xmax[d] = bodies[0].X[d];
+  }
+  for (size_t b=1; b<numBodies; b++) {
+    for (int d=0; d<3; d++) {
+      Xmin[d] = fmin(bodies[b].X[d], Xmin[d]);
+      Xmax[d] = fmax(bodies[b].X[d], Xmax[d]);
+    }
+  }
+  *R0 = 0;
+  for (int d=0; d<3; d++) {
+    X0[d] = (Xmax[d] + Xmin[d]) / 2;
+    *R0 = fmax(X0[d]-Xmin[d], *R0);
+    *R0 = fmax(Xmax[d]-X0[d], *R0);
+  }
+  *R0 *= 1.00001;
+}
+
+//! Build nodes of tree adaptively using a top-down approach based on recursion
+void buildTree(struct Body * bodies, struct Body * buffer, int begin, int end,
+               struct Node * node, struct Node * node_p,
+               int * numNodes, double * X, double R, double ncrit, bool direction) {
+  //! Create a tree node
+  node->body = bodies + begin;
+  if(direction) node->body = buffer + begin;
+  node->numBodies = end - begin;
+  node->numChilds = 0;
+  for (int d=0; d<3; d++) node->X[d] = X[d];
+  node->R = R;
+  //! Count number of bodies in each octant
+  int size[8] = {0,0,0,0,0,0,0,0};
+  double x[3];
+  for (int i=begin; i<end; i++) {
+    for (int d=0; d<3; d++) x[d] = bodies[i].X[d];
+    int octant = (x[0] > X[0]) + ((x[1] > X[1]) << 1) + ((x[2] > X[2]) << 2);
     size[octant]++;
   }
-  cell->NCHILD = 0;
-  for (int i=0; i<8; i++)
-    if (size[i]) cell->NCHILD++;
-  // Calculate offset of each octant
-  int counter[8];
-  counter[0] = begin;
-  for (int i=1; i<8; i++) {
-    counter[i] = size[i-1] + counter[i-1];
+  //! Exclusive scan to get offsets
+  int offset = begin;
+  int offsets[8], counter[8];
+  for (int i=0; i<8; i++) {
+    offsets[i] = offset;
+    offset += size[i];
+    if (size[i]) node->numChilds++;
   }
-  // Sort bodies
-  Bodies buffer = bodies;
-  for (int b=begin; b<end; b++) {
-    int octant = (buffer[b].X[0] > X0[0]) + ((buffer[b].X[1] > X0[1]) << 1) + ((buffer[b].X[2] > X0[2]) << 2);
-    bodies[counter[octant]] = buffer[b];
+  //! If node is a leaf
+  if (end - begin <= ncrit) {
+    node->numChilds = 0;
+    if (direction) {
+      for (int i=begin; i<end; i++) {
+        for (int d=0; d<3; d++) buffer[i].X[d] = bodies[i].X[d];
+        buffer[i].m = bodies[i].m;
+      }
+    }
+    return;
+  }
+  //! Sort bodies by octant
+  for (int i=0; i<8; i++) counter[i] = offsets[i];
+  for (int i=begin; i<end; i++) {
+    for (int d=0; d<3; d++) x[d] = bodies[i].X[d];
+    int octant = (x[0] > X[0]) + ((x[1] > X[1]) << 1) + ((x[2] > X[2]) << 2);
+    for (int d=0; d<3; d++) buffer[counter[octant]].X[d] = bodies[i].X[d];
+    buffer[counter[octant]].m = bodies[i].m;
     counter[octant]++;
   }
-  cells.resize(cells.size()+cell->NCHILD);
-  Cell * child = &cells.back() - cell->NCHILD + 1;
-  cell->CHILD = child;
-  // Calculate new center and radius
-  double X[3], R;
-  int c = 0;
-  for (int i=0; i<8; i++) {
-    R = R0 / 2;
+  //! Loop over children and recurse
+  double Xchild[3];
+  struct Node * child = node_p + *numNodes + 1;
+  *numNodes += node->numChilds;
+  node->child = child;
+  for (int i=0, c=0; i<8; i++) {
+    for (int d=0; d<3; d++) Xchild[d] = X[d];
+    double Rchild = R / 2;
     for (int d=0; d<3; d++) {
-      X[d] = X0[d] + R * (((i & 1 << d) >> d) * 2 - 1);
+      Xchild[d] += Rchild * (((i & 1 << d) >> d) * 2 - 1);
     }
-    // Recursive call only if size[i] != 0
     if (size[i]) {
-      buildTree(bodies, cells, &child[c], Xmin, X, R, counter[i]-size[i], counter[i], ncrit);
-      c++;
+      buildTree(buffer, bodies, offsets[i], offsets[i] + size[i],
+                 &child[c++], node_p, numNodes, Xchild, Rchild, ncrit, !direction);
     }
   }
 }
 
-void P2M(Cell * cell) {
-  for(int i=0; i<cell->NBODY; i++) {
-    Body * body = cell->BODY+i;
-    cell->M += body->q;
-  }
+int indexP(int nx, int ny, int nz, int p) {
+  int psum = p * (p+1) * (p+2) / 6;
+  int pxsum = (p - nx - 1) * (p - nx) * (p - nx + 1) / 6;
+  int pxysum = (p - nx - ny) * (p - nx - ny + 1) / 2;
+  return psum - pxsum - pxysum + nz;
 }
-
-void M2M(Cell * cell) {
-  for(int i=0; i<cell->NCHILD; i++) {
-    Cell * child = cell->CHILD+i;
-    cell->M += child->M;
-  }
-}
-
-void upwardPass(Cell * cell) {
-  for(int i=0; i<cell->NCHILD; i++) {
-    upwardPass(cell->CHILD+i);
-  }
-  if(cell->NCHILD==0) P2M(cell);
-  else M2M(cell);
-}
-
-void M2L(Cell * icell, Cell * jcell) {
-  icell->L += jcell->M;
-}
-
-void P2P(Cell * icell, Cell * jcell) {
-  for (int i=0; i<icell->NBODY; i++) {
-    Body * ibody = icell->BODY+i;
-    for (int j=0; j<jcell->NBODY; j++) {
-      Body * jbody = jcell->BODY+j;
-      ibody->p += jbody->q;
+  
+void P2P(struct Node * Ci, struct Node * Cj) {
+  struct Body * Bi = Ci->body;
+  struct Body * Bj = Cj->body;
+  for (int i=0; i<Ci->numBodies; i++) {
+    double F[3] = {0, 0, 0};
+    for (int j=0; j<Cj->numBodies; j++) {
+      double dX[3];
+      for (int d=0; d<3; d++) dX[d] = Bi[i].X[d] - Bj[j].X[d];
+      double R2 = dX[0] * dX[0] + dX[1] * dX[1] + dX[2] * dX[2];
+      if (R2 != 0) {
+        double invR2 = 1.0 / R2;
+        double invR = Bj[j].m * sqrt(invR2);
+        for (int d=0; d<3; d++) F[d] += dX[d] * invR2 * invR;
+      }
+    }
+    for (int d=0; d<3; d++) {
+#pragma omp atomic
+      Bi[i].F[d] -= F[d];
     }
   }
 }
 
-void horizontalPass(Cell * icell, Cell * jcell) {
-  double R = sqrtf((icell->X[0] - jcell->X[0]) * (icell->X[0] - jcell->X[0])
-                   + (icell->X[1] - jcell->X[1]) * (icell->X[1] - jcell->X[1])
-                   + (icell->X[2] - jcell->X[2]) * (icell->X[2] - jcell->X[2]));
-  if (R > icell->R + jcell->R) {
-    M2L(icell, jcell);
-  }
-  else if (icell->NCHILD == 0 && jcell->NCHILD == 0) {
-    std::cout << icell->index << std::endl;
-    P2P(icell, jcell);
-  }
-  else if (icell->R > jcell->R) {
-    for (int i=0; i<icell->NCHILD; i++) horizontalPass(icell->CHILD+i,jcell);
-  }
-  else {
-    for (int i=0; i<jcell->NCHILD; i++) horizontalPass(icell,jcell->CHILD+i);
-  }
-}
-
-void L2L(Cell * cell) {
-  for (int i=0; i<cell->NCHILD; i++) {
-    Cell * child = cell->CHILD+i;
-    child->L += cell->L;
+void P2M(struct Node * C) {
+  for (struct Body * B=C->body; B!=C->body+C->numBodies; B++) {
+    double dX[3], Mx[P], My[P], Mz[P];
+    for (int d=0; d<3; d++) dX[d] = C->X[d] - B->X[d];
+    Mx[0] = My[0] = Mz[0] = 1;
+    for (int n=1; n<P; n++) {
+      Mx[n] = Mx[n-1] * dX[0] / n;
+      My[n] = My[n-1] * dX[1] / n;
+      Mz[n] = Mz[n-1] * dX[2] / n;
+    }
+    double M[MTERM];
+    for (int nx=0; nx<P; nx++) {
+      for (int ny=0; ny<P-nx; ny++) {
+        for (int nz=0; nz<P-nx-ny; nz++) {
+          M[indexP(nx,ny,nz,P)] = B->m * Mx[nx] * My[ny] * Mz[nz];
+        }
+      }
+    }
+    for (int i=0; i<MTERM; i++) C->M[i] += M[i];
   }
 }
 
-void L2P(Cell * cell) {
-  for (int i=0; i<cell->NBODY; i++) {
-    Body * body = cell->BODY+i;
-    body->p += cell->L;
+void M2M(struct Node * Ci) {
+  for (struct Node * Cj=Ci->child; Cj!=Ci->child+Ci->numChilds; Cj++) {
+    double dX[3], Mx[P], My[P], Mz[P];
+    for (int d=0; d<3; d++) dX[d] = Ci->X[d] - Cj->X[d];
+    Mx[0] = My[0] = Mz[0] = 1;
+    for (int n=1; n<P; n++) {
+      Mx[n] = Mx[n-1] * dX[0] / n;
+      My[n] = My[n-1] * dX[1] / n;
+      Mz[n] = Mz[n-1] * dX[2] / n;
+    }
+    double C[MTERM];
+    for (int nx=0; nx<P; nx++) {
+      for (int ny=0; ny<P-nx; ny++) {
+        for (int nz=0; nz<P-nx-ny; nz++) {
+          C[indexP(nx,ny,nz,P)] = Mx[nx] * My[ny] * Mz[nz];
+        }
+      }
+    }
+    double M[MTERM];
+    for (int i=0; i<MTERM; i++) M[i] = Cj->M[i];
+    for (int nx=0; nx<P; nx++) {
+      for (int ny=0; ny<P-nx; ny++) {
+        for (int nz=0; nz<P-nx-ny; nz++) {
+          for (int kx=0; kx<=nx; kx++) {
+            for (int ky=0; ky<=ny; ky++) {
+              for (int kz=0; kz<=nz; kz++) {
+                Ci->M[indexP(nx,ny,nz,P)] += C[indexP(nx-kx,ny-ky,nz-kz,P)] * M[indexP(kx,ky,kz,P)];
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 
-void downwardPass(Cell * cell) {
-  L2L(cell);
-  if(cell->NCHILD==0) L2P(cell);
-  for(int i=0; i<cell->NCHILD; i++) {
-    downwardPass(cell->CHILD+i);
+void M2P(struct Node * Ci, struct Node * Cj) {
+  for (struct Body * B=Ci->body; B!=Ci->body+Ci->numBodies; B++) {
+    double dX[3];
+    for (int d=0; d<3; d++) dX[d] = B->X[d] - Cj->X[d];
+    double x = dX[0], y = dX[1], z = dX[2];
+    double R2 = x * x + y * y + z * z;
+    double invR2 = 1 / R2;
+    double invR  = sqrtf(invR2);
+    double invR3 = invR * invR2;
+    double factorial[P+1];
+    factorial[0] = 1;
+    for (int n=1; n<=P; n++) {
+      factorial[n] = factorial[n-1] * n;
+    }
+    double C[CTERM];
+    C[indexP(0,0,0,P+1)] = invR;
+    C[indexP(1,0,0,P+1)] = - x * invR3;
+    C[indexP(0,1,0,P+1)] = - y * invR3;
+    C[indexP(0,0,1,P+1)] = - z * invR3;
+    for (int n=2; n<=P; n++) {
+      for (int nx=0; nx<=n; nx++) {
+        for (int ny=0; ny<=n-nx; ny++) {
+          int nz = n-nx-ny;
+          double C1x = nx < 1 ? 0 : C[indexP(nx-1,ny,nz,P+1)];
+          double C1y = ny < 1 ? 0 : C[indexP(nx,ny-1,nz,P+1)];
+          double C1z = nz < 1 ? 0 : C[indexP(nx,ny,nz-1,P+1)];
+          double C2x = nx < 2 ? 0 : C[indexP(nx-2,ny,nz,P+1)];
+          double C2y = ny < 2 ? 0 : C[indexP(nx,ny-2,nz,P+1)];
+          double C2z = nz < 2 ? 0 : C[indexP(nx,ny,nz-2,P+1)];
+          C[indexP(nx,ny,nz,P+1)] = ((1-2*n)*(x * C1x + y * C1y + z * C1z) +
+                                    (1-n)*(C2x + C2y + C2z)) * invR2 / n;
+        }
+      }
+    }
+    for (int n=0; n<=P; n++) {
+      for (int nx=0; nx<=n; nx++) {
+        for (int ny=0; ny<=n-nx; ny++) {
+          int nz = n-nx-ny;
+          C[indexP(nx,ny,nz,P+1)] *= factorial[nx] * factorial[ny] * factorial[nz];
+        }
+      }
+    }
+    for (int nx=0; nx<P; nx++) {
+      for (int ny=0; ny<P-nx; ny++) {
+        for (int nz=0; nz<P-nx-ny; nz++) {
+          B->F[0] += C[indexP(nx+1,ny,nz,P+1)] * Cj->M[indexP(nx,ny,nz,P)];
+          B->F[1] += C[indexP(nx,ny+1,nz,P+1)] * Cj->M[indexP(nx,ny,nz,P)];
+          B->F[2] += C[indexP(nx,ny,nz+1,P+1)] * Cj->M[indexP(nx,ny,nz,P)];
+        }
+      } 
+    }
   }
+}
+
+//! Recursive call to post-order tree traversal for upward pass
+void upwardPass(struct Node * Ci) {
+  for (struct Node * Cj=Ci->child; Cj!=Ci->child+Ci->numChilds; Cj++) {
+    upwardPass(Cj);
+  }
+  if(Ci->numChilds==0) P2M(Ci);
+  M2M(Ci);
+}
+
+//! Recursive call to dual tree traversal for horizontal pass
+void horizontalPass(struct Node * Ci, struct Node * Cj, double theta) {
+  double dX[3];
+  for (int d=0; d<3; d++) dX[d] = Ci->X[d] - Cj->X[d];
+  double R2 = (dX[0] * dX[0] + dX[1] * dX[1] + dX[2] * dX[2]) * theta * theta;
+  if (R2 > (Ci->R + Cj->R) * (Ci->R + Cj->R)) {
+    M2P(Ci, Cj);
+  } else if (Ci->numChilds == 0 && Cj->numChilds == 0) {
+    P2P(Ci, Cj);
+  } else {
+    for (struct Node * cj=Cj->child; cj!=Cj->child+Cj->numChilds; cj++) {
+      horizontalPass(Ci, cj, theta);
+    }
+  }
+}
+
+//! Recursive call to pre-order tree traversal for downward pass
+void downwardPass(struct Node *Ci, struct Node * Cj, double theta) {
+  if (Ci->numChilds==0) {
+    horizontalPass(Ci, Cj, theta);
+  }
+  for (struct Node *C=Ci->child; C!=Ci->child+Ci->numChilds; C++) {
+#pragma omp task untied if(C->numBodies > 100)
+    downwardPass(C, Cj, theta);
+  }
+#pragma omp taskwait
+}
+
+//! Direct summation
+void direct(struct Body * ibodies, int numTargets, struct Body * jbodies, int numBodies) {
+  struct Node nodes[2];
+  struct Node * Ci = &nodes[0];
+  struct Node * Cj = &nodes[1];
+  Ci->body = ibodies;
+  Ci->numBodies = numTargets;
+  Cj->body = jbodies;
+  Cj->numBodies = numBodies;
+  P2P(Ci, Cj);
 }
 
 int main(int argc, char ** argv) {
-  int ncrit = 4;                                                // Number of bodies per leaf cell
-  const int numBodies = 60;                                     // Number of bodies
-  // Initialize bodies
-  Bodies bodies(numBodies);
-  for (int b=0; b<numBodies; b++) {                          // Loop over bodies
-    for (int d=0; d<3; d++) {                                   //  Loop over dimension
-      bodies[b].X[d] = drand48();                               //   Initialize coordinates
-    }                                                           //  End loop over dimension
-    bodies[b].q = 1;
-    bodies[b].p = 0;
-    bodies[b].index = b;
-  }                                                             // End loop over bodies
+  int numBodies = 10000;
+  double theta = .4;
+  double ncrit = 128;
 
-  // Get bounds
-  double Xmin[3], Xmax[3];
-  for (int d=0; d<3; d++) {
-    Xmin[d] = Xmax[d] = bodies[0].X[d];
-  }
-  for (int b=0; b<numBodies; b++) {
+  struct timeval tic, toc;
+  gettimeofday(&tic, NULL);
+  struct Body * bodies = (struct Body*)malloc(numBodies*sizeof(struct Body));
+  initBodies(bodies, numBodies);
+  double R0;
+  double X0[3];
+  getBounds(bodies, numBodies, X0, &R0);
+  struct Body * bodies2 = (struct Body*)malloc(numBodies*sizeof(struct Body));
+  struct Node * nodes = (struct Node*)malloc(numBodies*(32/ncrit+1)*sizeof(struct Node));
+  int numNodes = 1;
+  buildTree(bodies, bodies2, 0, numBodies, nodes, nodes, &numNodes, X0, R0, ncrit, false);
+  upwardPass(nodes);
+#pragma omp parallel
+#pragma omp single nowait
+  downwardPass(&nodes[0],&nodes[0],theta);
+  gettimeofday(&toc, NULL);
+  printf("FMM    : %g\n",timeDiff(tic,toc));
+
+  gettimeofday(&tic, NULL);
+  int numTargets = 100;
+  int stride = numBodies / numTargets;
+  for (int b=0; b<numTargets; b++) {
+    bodies2[b].m = bodies[b*stride].m;
     for (int d=0; d<3; d++) {
-      Xmin[d] = Xmin[d] > bodies[b].X[d] ? bodies[b].X[d] : Xmin[d];
-      Xmax[d] = Xmax[d] < bodies[b].X[d] ? bodies[b].X[d] : Xmax[d];
+      bodies2[b].X[d] = bodies[b*stride].X[d];
+      bodies2[b].F[d] = 0;
     }
   }
-  // Get center and radius
-  double X0[3], R0;
-  for (int d=0; d<3; d++) {
-    X0[d] = (Xmin[d] + Xmax[d]) / 2;
-  }
-  R0 = std::max(Xmax[0] - Xmin[0], Xmax[1] - Xmin[1]);
-  R0 = std::max(R0, Xmax[2] - Xmin[2]);
-  R0 *= .50001;
-  for (int d=0; d<3; d++) {
-    Xmin[d] = X0[d] - R0;
-    Xmax[d] = X0[d] + R0;
-  }
+  direct(&bodies2[0], numTargets, &bodies[0], numBodies);
+  for (int b=0; b<numTargets; b++)
+    for (int d=0; d<3; d++)
+      bodies[b].F[d] = bodies[b*stride].F[d];
+  gettimeofday(&toc, NULL);
+  printf("Direct : %g\n",timeDiff(tic,toc));
 
-  Cells cells(1);
-  cells.reserve(numBodies);
-  for (int d=0; d<3; d++) {
-    cells[0].X[d] = X0[d];
+  double diff = 0, norm = 0;
+  for (int b=0; b<numTargets; b++) {
+    diff += (bodies2[b].F[0] - bodies[b].F[0]) * (bodies2[b].F[0] - bodies[b].F[0]);
+    diff += (bodies2[b].F[1] - bodies[b].F[1]) * (bodies2[b].F[1] - bodies[b].F[1]);
+    diff += (bodies2[b].F[2] - bodies[b].F[2]) * (bodies2[b].F[2] - bodies[b].F[2]);
+    norm += bodies[b].F[0] * bodies[b].F[0];
+    norm += bodies[b].F[1] * bodies[b].F[1];
+    norm += bodies[b].F[2] * bodies[b].F[2];
   }
-  cells[0].R = R0;
-  buildTree(bodies, cells, &cells[0], Xmin, X0, R0, 0, numBodies, ncrit);
-  upwardPass(&cells[0]);
-  for (int i=0; i<cells.size(); i++) cells[i].index = i;
-  horizontalPass(&cells[0],&cells[0]);
-  downwardPass(&cells[0]);
-  for (int i=0; i<bodies.size(); i++) {
-    std::cout << i << " " << bodies[i].p << " " << std::endl;
-  }
+  printf("Error  : %e\n", sqrtf(diff/norm));
+  free(nodes);
+  free(bodies);
+  free(bodies2);
   return 0;
 }
