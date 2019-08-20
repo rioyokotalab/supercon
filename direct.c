@@ -35,19 +35,18 @@ int main(int argc, char *argv[])
   G = 6.6743e-11;
   eps = 1e-8;
   gettimeofday(&tic,NULL);
-#pragma omp parallel for private(axi,ayi,azi,Gmi,j,dx,dy,dz,R2,invR,invR3)
+#pragma omp parallel for private(axi,ayi,azi,G,j,dx,dy,dz,R2,invR,invR3)
   for (i=0; i<N; i++) {
     axi = 0;
     ayi = 0;
     azi = 0;
-    Gmi = G * m[i];
     for (j=0; j<N; j++) {
       dx = x[i] - x[j];
       dy = y[i] - y[j];
       dz = z[i] - z[j];
       R2 = dx * dx + dy * dy + dz * dz + eps;
       invR = 1 / sqrt(R2);
-      invR3 = invR * invR * invR * Gmi * m[j];
+      invR3 = invR * invR * invR * G * m[j];
       axi -= dx * invR3;
       ayi -= dy * invR3;
       azi -= dz * invR3;

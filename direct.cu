@@ -15,7 +15,6 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
   xi = x[i];
   yi = y[i];
   zi = z[i];
-  Gmi = G * m[i];
   extern __shared__ double xj[];
   double *yj = &xj[blockDim.x];
   double *zj = &yj[blockDim.x];
@@ -34,7 +33,7 @@ __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
       dz = zi - zj[j];
       R2 = dx * dx + dy * dy + dz * dz + eps;
       invR = rsqrtf(R2);
-      invR3 = invR * invR * invR * Gmi * mj[j];
+      invR3 = invR * invR * invR * G * mj[j];
       axi -= dx * invR3;
       ayi -= dy * invR3;
       azi -= dz * invR3;

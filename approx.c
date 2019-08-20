@@ -375,9 +375,9 @@ int main(int argc, char **argv) {
 
   for (int b=0; b<N; b++) {
     int i = bodies[b].i;
-    ax[i] = bodies[b].F[0] * G * bodies[b].m;
-    ay[i] = bodies[b].F[1] * G * bodies[b].m;
-    az[i] = bodies[b].F[2] * G * bodies[b].m;
+    ax[i] = bodies[b].F[0] * G;
+    ay[i] = bodies[b].F[1] * G;
+    az[i] = bodies[b].F[2] * G;
   }
   file = fopen("approx.dat","wb");
   fwrite(&N,sizeof(int),1,file);
