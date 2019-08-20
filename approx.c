@@ -132,7 +132,7 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
   }
   //! Loop over children and recurse
   double Xchild[3];
-  struct Node *child = node_p + *numNodes + 1;
+  struct Node *child = node_p + *numNodes;
   *numNodes += node->numChilds;
   node->child = child;
   for (int i=0, c=0; i<8; i++) {
@@ -365,7 +365,7 @@ int main(int argc, char **argv) {
   struct Body *bodies2 = (struct Body*)malloc(N*sizeof(struct Body));
   struct Node *nodes = (struct Node*)malloc(N*(32/ncrit+1)*sizeof(struct Node));
   int numNodes = 1;
-  buildTree(bodies, bodies2, 0, N, nodes, nodes-1, &numNodes, X0, R0, ncrit, false);
+  buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
   upwardPass(nodes);
   for (int i=0; i<numNodes; i++) {
     if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);

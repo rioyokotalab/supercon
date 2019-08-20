@@ -131,7 +131,7 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
   }
   //! Loop over children and recurse
   double Xchild[3];
-  struct Node *child = node_p + *numNodes + 1;
+  struct Node *child = node_p + *numNodes;
   *numNodes += node->numChilds;
   node->child = child;
   for (int i=0, c=0; i<8; i++) {
@@ -378,7 +378,7 @@ int main(int argc, char **argv) {
   gettimeofday(&toc, NULL);
   printf("Malloc : %g\n",timeDiff(tic,toc));
   int numNodes = 1;
-  buildTree(bodies, bodies2, 0, N, nodes, nodes-1, &numNodes, X0, R0, ncrit, false);
+  buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
   gettimeofday(&tic, NULL);
   printf("Tree   : %g\n",timeDiff(toc,tic));
   upwardPass(nodes);
