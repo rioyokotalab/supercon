@@ -16,6 +16,7 @@ int main(int argc, char *argv[])
   i = 0;
   Xmax = 0;
   S = 3.0 * M_PI / 16.0;
+  srand48(0); // random seed
   while (i < N) {
     x1 = drand48();
     x2 = drand48();
