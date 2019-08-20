@@ -240,7 +240,7 @@ void M2P(struct Node *Ci, struct Node *Cj) {
     double x = dX[0], y = dX[1], z = dX[2];
     double R2 = x * x + y * y + z * z;
     double invR2 = 1 / R2;
-    double invR  = sqrtf(invR2);
+    double invR  = sqrt(invR2);
     double invR3 = invR * invR2;
     double factorial[P+1];
     factorial[0] = 1;
@@ -365,7 +365,7 @@ int main(int argc, char **argv) {
   struct Body *bodies2 = (struct Body*)malloc(N*sizeof(struct Body));
   struct Node *nodes = (struct Node*)malloc(N*(32/ncrit+1)*sizeof(struct Node));
   int numNodes = 1;
-  buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
+  buildTree(bodies, bodies2, 0, N, nodes, nodes-1, &numNodes, X0, R0, ncrit, false);
   upwardPass(nodes);
   for (int i=0; i<numNodes; i++) {
     if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);
@@ -412,7 +412,7 @@ int main(int argc, char **argv) {
     norm += bodies[b].F[1] * bodies[b].F[1];
     norm += bodies[b].F[2] * bodies[b].F[2];
   }
-  printf("Error  : %e\n", sqrtf(diff/norm));
+  printf("Error  : %e\n", sqrt(diff/norm));
   */
   free(nodes);
   free(bodies);

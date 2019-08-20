@@ -147,14 +147,14 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
   }
 }
 
-int indexP(int nx, int ny, int nz, int p) {
+__host__ __device__ inline int indexP(int nx, int ny, int nz, int p) {
   int psum = p * (p+1) * (p+2) / 6;
   int pxsum = (p - nx - 1) * (p - nx) * (p - nx + 1) / 6;
   int pxysum = (p - nx - ny) * (p - nx - ny + 1) / 2;
   return psum - pxsum - pxysum + nz;
 }
   
-void P2P(struct Node *Ci, struct Node *Cj) {
+__host__ __device__ void P2P(struct Node *Ci, struct Node *Cj) {
   double eps = 1e-8;
   struct Body *Bi = Ci->body;
   struct Body *Bj = Cj->body;
@@ -169,7 +169,7 @@ void P2P(struct Node *Ci, struct Node *Cj) {
       for (int d=0; d<3; d++) F[d] += dX[d] * invR2 * invR;
     }
     for (int d=0; d<3; d++) {
-#pragma omp atomic
+      //#pragma omp atomic
       Bi[i].F[d] -= F[d];
     }
   }
@@ -233,7 +233,7 @@ void M2M(struct Node *Ci) {
   }
 }
 
-void M2P(struct Node *Ci, struct Node *Cj) {
+__host__ __device__ void M2P(struct Node *Ci, struct Node *Cj) {
   for (struct Body *B=Ci->body; B!=Ci->body+Ci->numBodies; B++) {
     double dX[3];
     for (int d=0; d<3; d++) dX[d] = B->X[d] - Cj->X[d];
@@ -297,7 +297,7 @@ void upwardPass(struct Node *Ci) {
 }
 
 //! Recursive call to dual tree traversal for horizontal pass
-void horizontalPass(struct Node *Ci, struct Node *Cj, double theta) {
+__host__ __device__ void horizontalPass(struct Node *Ci, struct Node *Cj, double theta) {
   double dX[3];
   for (int d=0; d<3; d++) dX[d] = Ci->X[d] - Cj->X[d];
   double R2 = (dX[0] * dX[0] + dX[1] * dX[1] + dX[2] * dX[2]) * theta * theta;
@@ -310,6 +310,12 @@ void horizontalPass(struct Node *Ci, struct Node *Cj, double theta) {
       horizontalPass(Ci, cj, theta);
     }
   }
+}
+
+__global__ void GPUkernel(struct Node * leafs, struct Node * nodes, int numLeafs, double theta) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= numLeafs) return;
+  horizontalPass(&leafs[i], nodes, theta);
 }
 
 //! Direct summation
@@ -372,7 +378,7 @@ int main(int argc, char **argv) {
   gettimeofday(&toc, NULL);
   printf("Malloc : %g\n",timeDiff(tic,toc));
   int numNodes = 1;
-  buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
+  buildTree(bodies, bodies2, 0, N, nodes, nodes-1, &numNodes, X0, R0, ncrit, false);
   gettimeofday(&tic, NULL);
   printf("Tree   : %g\n",timeDiff(toc,tic));
   upwardPass(nodes);
@@ -395,10 +401,9 @@ int main(int argc, char **argv) {
       l++;
     }
   }
-#pragma omp parallel for schedule(dynamic)
-  for (int i=0; i<numLeafs; i++) {
-    horizontalPass(&leafs[i],&nodes[0],theta);
-  }
+  //int threads = 32;
+  //GPUkernel<<<(numLeafs+threads-1)/threads,threads>>>(leafs, nodes, numLeafs, theta);
+  //cudaThreadSynchronize();
   gettimeofday(&tic, NULL);
   printf("Downwd : %g\n",timeDiff(toc,tic));
 
