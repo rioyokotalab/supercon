@@ -170,7 +170,6 @@ void P2P(struct Node *Ci, struct Node *Cj) {
       for (int d=0; d<3; d++) F[d] += dX[d] * invR2 * invR;
     }
     for (int d=0; d<3; d++) {
-#pragma omp atomic
       Bi[i].F[d] -= F[d];
     }
   }
@@ -368,7 +367,6 @@ int main(int argc, char **argv) {
   int numNodes = 1;
   buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
   upwardPass(nodes);
-#pragma omp parallel for schedule(dynamic)
   for (int i=0; i<numNodes; i++) {
     if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);
   }
