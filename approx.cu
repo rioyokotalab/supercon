@@ -401,9 +401,16 @@ int main(int argc, char **argv) {
       l++;
     }
   }
-  //int threads = 32;
-  //GPUkernel<<<(numLeafs+threads-1)/threads,threads>>>(leafs, nodes, numLeafs, theta);
-  //cudaThreadSynchronize();
+#if 1
+#pragma omp parallel for
+  for (int i=0; i<numLeafs; i++) {
+    horizontalPass(&leafs[i],&nodes[0],theta);
+  }
+#else
+  int threads = 32;
+  GPUkernel<<<(numLeafs+threads-1),threads>>>(&leafs[i], nodes, numLeafs, theta);
+  cudaThreadSynchronize();
+#endif
   gettimeofday(&tic, NULL);
   printf("Downwd : %g\n",timeDiff(toc,tic));
 

@@ -7,7 +7,7 @@
 __global__ void GPUkernel(int N, double * x, double * y, double * z, double * m,
 			  double * ax, double * ay, double * az, double G, double eps) {
   int i, j, jb;
-  double axi, ayi, azi, xi, yi, zi, Gmi, dx, dy, dz, R2, invR, invR3;
+  double axi, ayi, azi, xi, yi, zi, dx, dy, dz, R2, invR, invR3;
   i = blockIdx.x * blockDim.x + threadIdx.x;
   axi = 0;
   ayi = 0;
