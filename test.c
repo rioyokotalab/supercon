@@ -24,6 +24,8 @@ struct Node {
   int numBodies;
   double X[3];
   double R;
+  int CHILD[8];
+  struct Node *parent;
   struct Node *child;
   struct Body *body;
   double M[MTERM];
@@ -142,8 +144,10 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
       Xchild[d] += Rchild * (((i & 1 << d) >> d) * 2 - 1);
     }
     if (size[i]) {
+      node->CHILD[c] = *numNodes - node->numChilds + c;
+      child[c].parent = node;
       buildTree(buffer, bodies, offsets[i], offsets[i] + size[i],
-                 &child[c++], node_p, numNodes, Xchild, Rchild, ncrit, !direction);
+                &child[c++], node_p, numNodes, Xchild, Rchild, ncrit, !direction);
     }
   }
 }
@@ -288,16 +292,16 @@ void M2P(struct Node *Ci, struct Node *Cj) {
 }
 
 //! Recursive call to post-order tree traversal for upward pass
-void upwardPass(struct Node *Ci) {
+void upwardPass(struct Node *Ci, struct Node *C0) {
   for (struct Node *Cj=Ci->child; Cj!=Ci->child+Ci->numChilds; Cj++) {
-    upwardPass(Cj);
+    upwardPass(Cj, C0);
   }
   if(Ci->numChilds==0) P2M(Ci);
   M2M(Ci);
 }
 
 //! Recursive call to dual tree traversal for horizontal pass
-void horizontalPass(struct Node *Ci, struct Node *Cj, double theta) {
+void horizontalPass(struct Node *Ci, struct Node *Cj, struct Node *C0, double theta) {
   double dX[3];
   for (int d=0; d<3; d++) dX[d] = Ci->X[d] - Cj->X[d];
   double R2 = (dX[0] * dX[0] + dX[1] * dX[1] + dX[2] * dX[2]) * theta * theta;
@@ -307,7 +311,7 @@ void horizontalPass(struct Node *Ci, struct Node *Cj, double theta) {
     P2P(Ci, Cj);
   } else {
     for (struct Node *cj=Cj->child; cj!=Cj->child+Cj->numChilds; cj++) {
-      horizontalPass(Ci, cj, theta);
+      horizontalPass(Ci, cj, C0, theta);
     }
   }
 }
@@ -369,10 +373,10 @@ int main(int argc, char **argv) {
   struct Node *nodes = (struct Node*)malloc(N*(32/ncrit+1)*sizeof(struct Node));
   int numNodes = 1;
   buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
-  upwardPass(nodes);
+  upwardPass(nodes, nodes);
 #pragma omp parallel for schedule (dynamic)
   for (int i=0; i<numNodes; i++) {
-    if(nodes[i].numChilds == 0) horizontalPass(&nodes[i],&nodes[0],theta);
+    if(nodes[i].numChilds == 0) horizontalPass(&nodes[i], nodes, nodes, theta);
   }
   gettimeofday(&toc, NULL);
   printf("FMM    : %g\n",timeDiff(tic,toc));
