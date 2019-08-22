@@ -18,15 +18,15 @@ struct Body {
   double F[3];
 };
 
-//! Structure of nodes
-struct Node {
+//! Structure of cells
+struct Cell {
   int NCHILD;
   int NLEAF;
   double X[3];
   double R;
   int CHILD[8];
-  struct Node *parent;
-  struct Node *child;
+  struct Cell *parent;
+  struct Cell *child;
   struct Body *body;
   double M[MTERM];
 };
@@ -83,17 +83,17 @@ void getBounds(struct Body *bodies, int NLEAF, double *X0, double *R0) {
   *R0 *= 1.00001;
 }
 
-//! Build nodes of tree adaptively using a top-down approach based on recursion
+//! Build cells of tree adaptively using a top-down approach based on recursion
 void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
-               struct Node *node, struct Node *node_p,
-               int *numNodes, double *X, double R, double ncrit, bool direction) {
-  //! Create a tree node
-  node->body = bodies + begin;
-  if(direction) node->body = buffer + begin;
-  node->NLEAF = end - begin;
-  node->NCHILD = 0;
-  for (int d=0; d<3; d++) node->X[d] = X[d];
-  node->R = R;
+               struct Cell *cell, struct Cell *cell_p,
+               int *numCells, double *X, double R, double ncrit, bool direction) {
+  //! Create a tree cell
+  cell->body = bodies + begin;
+  if(direction) cell->body = buffer + begin;
+  cell->NLEAF = end - begin;
+  cell->NCHILD = 0;
+  for (int d=0; d<3; d++) cell->X[d] = X[d];
+  cell->R = R;
   //! Count number of bodies in each octant
   int size[8] = {0,0,0,0,0,0,0,0};
   double x[3];
@@ -108,11 +108,11 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
   for (int i=0; i<8; i++) {
     offsets[i] = offset;
     offset += size[i];
-    if (size[i]) node->NCHILD++;
+    if (size[i]) cell->NCHILD++;
   }
-  //! If node is a leaf
+  //! If cell is a leaf
   if (end - begin <= ncrit) {
-    node->NCHILD = 0;
+    cell->NCHILD = 0;
     if (direction) {
       for (int i=begin; i<end; i++) {
         for (int d=0; d<3; d++) buffer[i].X[d] = bodies[i].X[d];
@@ -134,9 +134,9 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
   }
   //! Loop over children and recurse
   double Xchild[3];
-  struct Node *child = node_p + *numNodes;
-  *numNodes += node->NCHILD;
-  node->child = child;
+  struct Cell *child = cell_p + *numCells;
+  *numCells += cell->NCHILD;
+  cell->child = child;
   for (int i=0, c=0; i<8; i++) {
     for (int d=0; d<3; d++) Xchild[d] = X[d];
     double Rchild = R / 2;
@@ -144,10 +144,10 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
       Xchild[d] += Rchild * (((i & 1 << d) >> d) * 2 - 1);
     }
     if (size[i]) {
-      node->CHILD[c] = *numNodes - node->NCHILD + c;
-      child[c].parent = node;
+      cell->CHILD[c] = *numCells - cell->NCHILD + c;
+      child[c].parent = cell;
       buildTree(buffer, bodies, offsets[i], offsets[i] + size[i],
-                &child[c++], node_p, numNodes, Xchild, Rchild, ncrit, !direction);
+                &child[c++], cell_p, numCells, Xchild, Rchild, ncrit, !direction);
     }
   }
 }
@@ -159,7 +159,7 @@ int indexP(int nx, int ny, int nz, int p) {
   return psum - pxsum - pxysum + nz;
 }
   
-void P2P(struct Node *Ci, struct Node *Cj) {
+void P2P(struct Cell *Ci, struct Cell *Cj) {
   double eps = 1e-8;
   struct Body *Bi = Ci->body;
   struct Body *Bj = Cj->body;
@@ -179,7 +179,7 @@ void P2P(struct Node *Ci, struct Node *Cj) {
   }
 }
 
-void P2M(struct Node *C) {
+void P2M(struct Cell *C) {
   for (struct Body *B=C->body; B!=C->body+C->NLEAF; B++) {
     double dX[3], Mx[P], My[P], Mz[P];
     for (int d=0; d<3; d++) dX[d] = C->X[d] - B->X[d];
@@ -201,8 +201,8 @@ void P2M(struct Node *C) {
   }
 }
 
-void M2M(struct Node *Ci) {
-  for (struct Node *Cj=Ci->child; Cj!=Ci->child+Ci->NCHILD; Cj++) {
+void M2M(struct Cell *Ci) {
+  for (struct Cell *Cj=Ci->child; Cj!=Ci->child+Ci->NCHILD; Cj++) {
     double dX[3], Mx[P], My[P], Mz[P];
     for (int d=0; d<3; d++) dX[d] = Ci->X[d] - Cj->X[d];
     Mx[0] = My[0] = Mz[0] = 1;
@@ -237,7 +237,7 @@ void M2M(struct Node *Ci) {
   }
 }
 
-void M2P(struct Node *Ci, struct Node *Cj) {
+void M2P(struct Cell *Ci, struct Cell *Cj) {
   for (struct Body *B=Ci->body; B!=Ci->body+Ci->NLEAF; B++) {
     double dX[3];
     for (int d=0; d<3; d++) dX[d] = B->X[d] - Cj->X[d];
@@ -292,8 +292,8 @@ void M2P(struct Node *Ci, struct Node *Cj) {
 }
 
 //! Recursive call to post-order tree traversal for upward pass
-void upwardPass(struct Node *Ci, struct Node *C0) {
-  for (struct Node *Cj=Ci->child; Cj!=Ci->child+Ci->NCHILD; Cj++) {
+void upwardPass(struct Cell *Ci, struct Cell *C0) {
+  for (struct Cell *Cj=Ci->child; Cj!=Ci->child+Ci->NCHILD; Cj++) {
     upwardPass(Cj, C0);
   }
   if(Ci->NCHILD==0) P2M(Ci);
@@ -301,7 +301,7 @@ void upwardPass(struct Node *Ci, struct Node *C0) {
 }
 
 //! Recursive call to dual tree traversal for horizontal pass
-void horizontalPass(struct Node *Ci, struct Node *Cj, struct Node *C0, double theta) {
+void horizontalPass(struct Cell *Ci, struct Cell *Cj, struct Cell *C0, double theta) {
   double dX[3];
   for (int d=0; d<3; d++) dX[d] = Ci->X[d] - Cj->X[d];
   double R2 = (dX[0] * dX[0] + dX[1] * dX[1] + dX[2] * dX[2]) * theta * theta;
@@ -310,7 +310,7 @@ void horizontalPass(struct Node *Ci, struct Node *Cj, struct Node *C0, double th
   } else if (Ci->NCHILD == 0 && Cj->NCHILD == 0) {
     P2P(Ci, Cj);
   } else {
-    for (struct Node *cj=Cj->child; cj!=Cj->child+Cj->NCHILD; cj++) {
+    for (struct Cell *cj=Cj->child; cj!=Cj->child+Cj->NCHILD; cj++) {
       horizontalPass(Ci, cj, C0, theta);
     }
   }
@@ -318,9 +318,9 @@ void horizontalPass(struct Node *Ci, struct Node *Cj, struct Node *C0, double th
 
 //! Direct summation
 void direct(struct Body *ibodies, int numTargets, struct Body *jbodies, int NLEAF) {
-  struct Node nodes[2];
-  struct Node *Ci = &nodes[0];
-  struct Node *Cj = &nodes[1];
+  struct Cell cells[2];
+  struct Cell *Ci = &cells[0];
+  struct Cell *Cj = &cells[1];
   Ci->body = ibodies;
   Ci->NLEAF = numTargets;
   Cj->body = jbodies;
@@ -370,13 +370,13 @@ int main(int argc, char **argv) {
   double X0[3];
   getBounds(bodies, N, X0, &R0);
   struct Body *bodies2 = (struct Body*)malloc(N*sizeof(struct Body));
-  struct Node *nodes = (struct Node*)malloc(N*(32/ncrit+1)*sizeof(struct Node));
-  int numNodes = 1;
-  buildTree(bodies, bodies2, 0, N, nodes, nodes, &numNodes, X0, R0, ncrit, false);
-  upwardPass(nodes, nodes);
+  struct Cell *cells = (struct Cell*)malloc(N*(32/ncrit+1)*sizeof(struct Cell));
+  int numCells = 1;
+  buildTree(bodies, bodies2, 0, N, cells, cells, &numCells, X0, R0, ncrit, false);
+  upwardPass(cells, cells);
 #pragma omp parallel for schedule (dynamic)
-  for (int i=0; i<numNodes; i++) {
-    if(nodes[i].NCHILD == 0) horizontalPass(&nodes[i], nodes, nodes, theta);
+  for (int i=0; i<numCells; i++) {
+    if(cells[i].NCHILD == 0) horizontalPass(&cells[i], cells, cells, theta);
   }
   gettimeofday(&toc, NULL);
   printf("FMM    : %g\n",timeDiff(tic,toc));
@@ -429,7 +429,7 @@ int main(int argc, char **argv) {
     norm += bodies[b].F[2] * bodies[b].F[2];
   }
   printf("Error  : %e\n", sqrt(diff/norm));
-  free(nodes);
+  free(cells);
   free(bodies);
   free(bodies2);  
   return 0;
