@@ -24,8 +24,8 @@ struct Cell {
   int NLEAF;
   double X[3];
   double R;
-  int CHILD[8];
-  struct Cell *parent;
+  int PARENT;
+  int CHILD;
   struct Cell *child;
   struct Body *body;
   double M[MTERM];
@@ -137,6 +137,7 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
   struct Cell *child = cell_p + *numCells;
   *numCells += cell->NCHILD;
   cell->child = child;
+  cell->CHILD = child - cell_p;
   for (int i=0, c=0; i<8; i++) {
     for (int d=0; d<3; d++) Xchild[d] = X[d];
     double Rchild = R / 2;
@@ -144,8 +145,7 @@ void buildTree(struct Body *bodies, struct Body *buffer, int begin, int end,
       Xchild[d] += Rchild * (((i & 1 << d) >> d) * 2 - 1);
     }
     if (size[i]) {
-      cell->CHILD[c] = *numCells - cell->NCHILD + c;
-      child[c].parent = cell;
+      child[c].PARENT = cell - cell_p;
       buildTree(buffer, bodies, offsets[i], offsets[i] + size[i],
                 &child[c++], cell_p, numCells, Xchild, Rchild, ncrit, !direction);
     }

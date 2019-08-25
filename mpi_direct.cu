@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
   MPI_Allreduce(ax,axg,N,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
   MPI_Allreduce(ay,ayg,N,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
   MPI_Allreduce(az,azg,N,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-  file = fopen("approx.dat","wb");
+  file = fopen("direct.dat","wb");
   fwrite(&N,sizeof(int),1,file);
   fwrite(axg,sizeof(double),N,file);
   fwrite(ayg,sizeof(double),N,file);
